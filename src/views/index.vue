@@ -6,7 +6,6 @@ import { getTodayPrices, getLatestPrice, GoldPriceChartData, LatestPriceData } f
 // 定义数据
 const chartData = ref<GoldPriceChartData[]>([])
 const latestPrice = ref<LatestPriceData | null>(null)
-const chartInstance = ref<echarts.ECharts | null>(null)
 const chartContainer = ref<HTMLElement | null>(null)
 const loading = ref(true)
 const error = ref('')
@@ -58,7 +57,7 @@ const initChart = () => {
     grid: {
       left: '5%',
       right: '8%',
-      bottom: '5%',
+      bottom: '15%', // 增加底部空间以容纳滑块
       top: '10%',
       containLabel: true
     },
@@ -83,6 +82,45 @@ const initChart = () => {
         }
       },
     },
+    dataZoom: [
+      {
+        type: 'slider',
+        show: true,
+        xAxisIndex: 0,
+        filterMode: 'filter',
+        start: 80, // 默认显示最近20%的数据
+        end: 100,
+        bottom: 10,
+        height: 20,
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(180, 180, 180, 0.1)',
+        dataBackground: {
+          lineStyle: {
+            color: '#e0962e'
+          },
+          areaStyle: {
+            color: 'rgba(224, 150, 46, 0.3)'
+          }
+        },
+        fillerColor: 'rgba(224, 150, 46, 0.2)',
+        handleIcon: 'path://M10.7,11.9v-1.3H9.3v1.3c-4.9,0.3-8.8,4.4-8.8,9.4c0,5,3.9,9.1,8.8,9.4v1.3h1.3v-1.3c4.9-0.3,8.8-4.4,8.8-9.4C19.5,16.3,15.6,12.2,10.7,11.9z M13.3,24.4H6.7V23h6.6V24.4z M13.3,19.6H6.7v-1.4h6.6V19.6z',
+        handleSize: '80%',
+        handleStyle: {
+          color: '#e0962e'
+        },
+        textStyle: {
+          color: '#333'
+        }
+      },
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        start: 80,
+        end: 100,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true
+      }
+    ],
     series: [
       {
         name: '金价',
@@ -179,6 +217,25 @@ const updateChartData = () => {
       finalData = seriesData.slice(-maxDataPoints)
     }
 
+    // 计算默认的dataZoom范围 - 显示最近一小时的数据
+    let startValue = finalData[0][0]
+    let endValue = finalData[finalData.length - 1][0]
+    
+    // 计算显示最后一小时数据的起始位置
+    const oneHourAgo = endValue - 60 * 60 * 1000
+    
+    // 找到最接近一小时前的数据点
+    let startIndex = 0
+    for (let i = 0; i < finalData.length; i++) {
+      if (finalData[i][0] >= oneHourAgo) {
+        startIndex = Math.max(0, i - 1)
+        break
+      }
+    }
+    
+    // 如果数据量不足一小时，则显示所有数据
+    const startPercent = finalData.length <= 10 ? 0 : (startIndex / finalData.length * 100)
+    
     // 设置图表选项
     try {
       myChart.setOption({
@@ -208,6 +265,46 @@ const updateChartData = () => {
   }
 }
 
+// 计算聚焦区域的起始索引
+const calculateFocusRange = (data: [number, number][]): { start: number, end: number } => {
+  if (!data || data.length === 0) {
+    return { start: 0, end: 100 }
+  }
+  
+  try {
+    // 全天数据的时间范围
+    const endTime = data[data.length - 1][0]
+    
+    // 计算一小时前的时间戳
+    const oneHourAgo = endTime - 60 * 60 * 1000
+    
+    // 寻找一小时前的数据点索引
+    let startIndex = 0
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0] >= oneHourAgo) {
+        startIndex = Math.max(0, i - 1)
+        break
+      }
+    }
+    
+    // 如果数据点太少，显示全部
+    if (data.length <= 10) {
+      return { start: 0, end: 100 }
+    }
+    
+    // 计算百分比位置
+    const startPercent = Math.round(startIndex / data.length * 100)
+    
+    // 确保至少显示最后20%的数据
+    const finalStart = Math.min(startPercent, 80)
+    
+    return { start: finalStart, end: 100 }
+  } catch (err) {
+    console.error('计算缩放范围错误:', err)
+    return { start: 80, end: 100 } // 默认显示最后20%
+  }
+}
+
 // 获取当天金价数据
 const fetchTodayPrices = async () => {
   try {
@@ -217,7 +314,49 @@ const fetchTodayPrices = async () => {
 
     if (response.success && response.resultData.status === 'SUCCESS') {
       chartData.value = response.resultData.datas
+      
+      // 处理数据以设置适当的缩放范围
+      const processedData = chartData.value.map(item => {
+        try {
+          const timeStr = item.value[0]
+          const price = item.value[1]
+          const time = new Date(timeStr).getTime()
+          const priceNum = parseFloat(price)
+          
+          if (isNaN(time) || isNaN(priceNum)) {
+            return null
+          }
+          
+          return [time, priceNum]
+        } catch (e) {
+          return null
+        }
+      }).filter(item => item !== null) as [number, number][]
+      
+      // 排序数据
+      processedData.sort((a, b) => a[0] - b[0])
+      
+      // 计算缩放范围
+      const focusRange = calculateFocusRange(processedData)
+      
+      // 更新图表
       updateChartData()
+      
+      // 应用计算的缩放范围
+      if (myChart) {
+        myChart.setOption({
+          dataZoom: [
+            {
+              start: focusRange.start,
+              end: focusRange.end
+            },
+            {
+              start: focusRange.start,
+              end: focusRange.end
+            }
+          ]
+        }, false)
+      }
     } else {
       error.value = response.resultMsg || '获取金价数据失败'
     }
