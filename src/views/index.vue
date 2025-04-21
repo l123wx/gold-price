@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import * as echarts from 'echarts'
+import { ElMessage, ElButton, ElDialog, ElForm, ElFormItem, ElInputNumber } from 'element-plus'
+import { Setting } from '@element-plus/icons-vue'
 import { getTodayPrices, getLatestPrice, GoldPriceChartData, LatestPriceData } from '@/api/goldPrice'
 
 // 定义数据
@@ -10,6 +12,49 @@ const chartContainer = ref<HTMLElement | null>(null)
 const loading = ref(true)
 const error = ref('')
 const lastUpdateTime = ref<string>('')
+
+// 交易手续费设置
+const dialogVisible = ref(false)
+const sellingFeeForm = ref({
+  fee: 0.0030 // 默认0.3%手续费
+})
+const sellingFee = ref(localStorage.getItem('sellingFee') ? Number(localStorage.getItem('sellingFee')) : 0.0030)
+
+// 计算不亏损卖出价格
+const noLossSellPrice = computed(() => {
+  if (!latestPrice.value) return null
+  
+  const currentPrice = parseFloat(latestPrice.value.price)
+  if (isNaN(currentPrice)) return null
+  
+  // 计算公式：当前金价 / (1 - 手续费)
+  const price = currentPrice / (1 - sellingFee.value)
+  return price.toFixed(2)
+})
+
+// 保存手续费设置
+const saveSellingFee = () => {
+  if (sellingFeeForm.value.fee < 0 || sellingFeeForm.value.fee > 0.1) {
+    ElMessage.error('手续费应在0-10%范围内')
+    return
+  }
+  
+  sellingFee.value = sellingFeeForm.value.fee
+  localStorage.setItem('sellingFee', sellingFee.value.toString())
+  dialogVisible.value = false
+  ElMessage.success('设置已保存')
+}
+
+// 打开设置弹窗
+const openSettingsDialog = () => {
+  sellingFeeForm.value.fee = sellingFee.value
+  dialogVisible.value = true
+}
+
+// 格式化百分比
+const formatPercent = (value: number) => {
+  return (value * 100).toFixed(2) + '%'
+}
 
 // 格式化日期时间
 const formatDateTime = (date: Date): string => {
@@ -453,6 +498,15 @@ const handleResize = () => {
 
 onMounted(async () => {
   try {
+    // 加载保存的手续费设置
+    const savedFee = localStorage.getItem('sellingFee')
+    if (savedFee) {
+      const feeValue = Number(savedFee)
+      if (!isNaN(feeValue) && feeValue >= 0 && feeValue <= 0.1) {
+        sellingFee.value = feeValue
+      }
+    }
+    
     // 获取初始数据
     await fetchTodayPrices()
     
@@ -498,6 +552,13 @@ onUnmounted(() => {
         <div class="price-change" :class="{ 'price-up': latestPrice.upAndDownAmt.startsWith('+'), 'price-down': latestPrice.upAndDownAmt.startsWith('-') }">
           {{ latestPrice.upAndDownAmt }} ({{ latestPrice.upAndDownRate }})
         </div>
+        <div class="no-loss-price" v-if="noLossSellPrice">
+          <span>盈亏平衡价: <strong>{{ noLossSellPrice }}</strong> 元/克</span>
+          <span class="fee-info">(手续费: {{ formatPercent(sellingFee) }})</span>
+          <el-button type="primary" link size="small" :icon="Setting" class="settings-btn" @click="openSettingsDialog">
+            设置
+          </el-button>
+        </div>
       </div>
       <div class="update-time">
         最后更新: {{ lastUpdateTime }}
@@ -505,7 +566,31 @@ onUnmounted(() => {
     </div>
 
     <!-- 图表容器 -->
-    <div ref="chartContainer" style="height: calc(100vh - 120px); width: 100%;"></div>
+    <div ref="chartContainer" style="height: calc(100vh - 150px); width: 100%;"></div>
+    
+    <!-- 设置弹窗 -->
+    <el-dialog v-model="dialogVisible" title="交易设置" width="30%" align-center>
+      <el-form :model="sellingFeeForm" label-position="top">
+        <el-form-item label="卖出手续费 (%)">
+          <el-input-number
+            v-model="sellingFeeForm.fee"
+            :precision="4"
+            :step="0.0005"
+            :min="0"
+            :max="0.1"
+            :controls="true"
+            style="width: 100%"
+          />
+          <div class="fee-hint">请输入0-10%之间的手续费比例，例如0.3%输入0.003</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="saveSellingFee">确认</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -602,5 +687,39 @@ onUnmounted(() => {
   max-width: 80%;
   text-align: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.no-loss-price {
+  margin-top: 8px;
+  font-size: 0.95rem;
+  color: #444;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.no-loss-price strong {
+  color: #e04c4c;
+  font-weight: bold;
+  margin: 0 2px;
+}
+
+.fee-info {
+  color: #888;
+  font-size: 0.85rem;
+  margin-left: 5px;
+}
+
+.settings-btn {
+  font-size: 0.85rem;
+  margin-left: 5px;
+  padding: 0;
+  height: auto;
+}
+
+.fee-hint {
+  font-size: 0.8rem;
+  color: #888;
+  margin-top: 5px;
 }
 </style>
