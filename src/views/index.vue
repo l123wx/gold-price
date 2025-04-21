@@ -13,6 +13,9 @@ const loading = ref(true)
 const error = ref('')
 const lastUpdateTime = ref<string>('')
 
+// 图表状态跟踪
+const hasInitializedRange = ref(false)
+
 // 交易手续费设置
 const dialogVisible = ref(false)
 const sellingFeeForm = ref({
@@ -432,34 +435,66 @@ const updateChartData = () => {
       finalData = seriesData.slice(-maxDataPoints)
     }
 
-    // 计算默认的dataZoom范围 - 显示最近一小时的数据
-    let startValue = finalData[0][0]
-    let endValue = finalData[finalData.length - 1][0]
-    
-    // 计算显示最后一小时数据的起始位置
-    const oneHourAgo = endValue - 60 * 60 * 1000
-    
-    // 找到最接近一小时前的数据点
-    let startIndex = 0
-    for (let i = 0; i < finalData.length; i++) {
-      if (finalData[i][0] >= oneHourAgo) {
-        startIndex = Math.max(0, i - 1)
-        break
-      }
-    }
-    
-    // 如果数据量不足一小时，则显示所有数据
-    const startPercent = finalData.length <= 10 ? 0 : (startIndex / finalData.length * 100)
+    // 判断是否需要初始化显示范围
+    const isFirstUpdate = !hasInitializedRange.value;
     
     // 设置图表选项
     try {
-      myChart.setOption({
-        series: [
-          {
-            data: finalData
+      // 如果是首次更新，计算最近一小时数据的范围
+      if (isFirstUpdate) {
+        // 计算最近一小时数据的范围
+        const endTime = finalData[finalData.length - 1][0]
+        const oneHourAgo = endTime - 60 * 60 * 1000
+        
+        // 寻找最接近一小时前的数据点索引
+        let startIndex = 0
+        for (let i = 0; i < finalData.length; i++) {
+          if (finalData[i][0] >= oneHourAgo) {
+            startIndex = Math.max(0, i - 1) // 确保至少包含找到的那个点的前一个点
+            break
           }
-        ]
-      }, false)  // 设置为false避免完全覆盖配置
+        }
+        
+        // 计算百分比位置
+        const startPercent = (startIndex / finalData.length * 100)
+        
+        // 确保百分比在有效范围内
+        const validStartPercent = Math.max(0, Math.min(90, startPercent))
+        
+        myChart.setOption({
+          dataZoom: [
+            {
+              start: validStartPercent,
+              end: 100
+            },
+            {
+              start: validStartPercent,
+              end: 100
+            }
+          ],
+          series: [
+            {
+              data: finalData
+            }
+          ]
+        }, false)  // 设置为false避免完全覆盖配置
+        
+        // 标记为已初始化
+        hasInitializedRange.value = true;
+        
+        console.log('图表初始化显示最近一小时数据')
+      } else {
+        // 如果不是首次更新，只更新数据，不修改显示范围
+        myChart.setOption({
+          series: [
+            {
+              data: finalData
+            }
+          ]
+        }, false)
+        
+        console.log('图表数据更新成功，保持当前显示范围')
+      }
     } catch (chartErr) {
       console.error('设置图表数据错误:', chartErr)
       // 尝试应用基本配置
@@ -473,50 +508,8 @@ const updateChartData = () => {
         console.error('应用基本图表配置失败:', fallbackErr)
       }
     }
-
-    console.log('图表数据更新成功')
   } catch (err) {
     console.error('更新图表数据错误:', err)
-  }
-}
-
-// 计算聚焦区域的起始索引
-const calculateFocusRange = (data: [number, number][]): { start: number, end: number } => {
-  if (!data || data.length === 0) {
-    return { start: 0, end: 100 }
-  }
-  
-  try {
-    // 全天数据的时间范围
-    const endTime = data[data.length - 1][0]
-    
-    // 计算一小时前的时间戳
-    const oneHourAgo = endTime - 60 * 60 * 1000
-    
-    // 寻找一小时前的数据点索引
-    let startIndex = 0
-    for (let i = 0; i < data.length; i++) {
-      if (data[i][0] >= oneHourAgo) {
-        startIndex = Math.max(0, i - 1)
-        break
-      }
-    }
-    
-    // 如果数据点太少，显示全部
-    if (data.length <= 10) {
-      return { start: 0, end: 100 }
-    }
-    
-    // 计算百分比位置
-    const startPercent = Math.round(startIndex / data.length * 100)
-    
-    // 确保至少显示最后20%的数据
-    const finalStart = Math.min(startPercent, 80)
-    
-    return { start: finalStart, end: 100 }
-  } catch (err) {
-    console.error('计算缩放范围错误:', err)
-    return { start: 80, end: 100 } // 默认显示最后20%
   }
 }
 
@@ -530,48 +523,13 @@ const fetchTodayPrices = async () => {
     if (response.success && response.resultData.status === 'SUCCESS') {
       chartData.value = response.resultData.datas
       
-      // 处理数据以设置适当的缩放范围
-      const processedData = chartData.value.map(item => {
-        try {
-          const timeStr = item.value[0]
-          const price = item.value[1]
-          const time = new Date(timeStr).getTime()
-          const priceNum = parseFloat(price)
-          
-          if (isNaN(time) || isNaN(priceNum)) {
-            return null
-          }
-          
-          return [time, priceNum]
-        } catch (e) {
-          return null
-        }
-      }).filter(item => item !== null) as [number, number][]
-      
-      // 排序数据
-      processedData.sort((a, b) => a[0] - b[0])
-      
-      // 计算缩放范围
-      const focusRange = calculateFocusRange(processedData)
-      
-      // 更新图表
-      updateChartData()
-      
-      // 应用计算的缩放范围
-      if (myChart) {
-        myChart.setOption({
-          dataZoom: [
-            {
-              start: focusRange.start,
-              end: focusRange.end
-            },
-            {
-              start: focusRange.start,
-              end: focusRange.end
-            }
-          ]
-        }, false)
+      // 仅在初始化阶段进行图表初始化
+      if (!myChart && chartContainer.value) {
+        initChart()
       }
+      
+      // 更新图表数据 - updateChartData函数中已包含设置最近一小时数据的逻辑
+      updateChartData()
     } else {
       error.value = response.resultMsg || '获取金价数据失败'
     }
@@ -769,7 +727,10 @@ onUnmounted(() => {
         <div class="price-change" :class="{ 'price-up': latestPrice.upAndDownAmt.startsWith('+'), 'price-down': latestPrice.upAndDownAmt.startsWith('-') }">
           {{ latestPrice.upAndDownAmt }} ({{ latestPrice.upAndDownRate }})
         </div>
-        
+        <div style="display: flex; gap: 10px; font-size: 0.9rem">
+          <span>今日最低: <span style="color: #6cc14d;">{{ todayLowestPrice || '-' }}</span></span>
+          <span>今日最高: <span style="color: #f26f6f;">{{ todayHighestPrice || '-' }}</span></span>
+        </div>
       </div>
       <div style="height: 100%; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;">
         <div class="update-time">
@@ -936,8 +897,10 @@ onUnmounted(() => {
 }
 
 .price-info {
+  height: 100%;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
 }
 
 .price-value-container {
@@ -953,6 +916,7 @@ onUnmounted(() => {
 
 .price-value {
   font-size: 2.2rem;
+  line-height: 24px;
   font-weight: bold;
   color: #e0962e;
 }
@@ -983,8 +947,8 @@ onUnmounted(() => {
 
 .price-change {
   font-size: 1.1rem;
+  line-height: 18px;
   font-weight: 500;
-  margin-top: 5px;
 }
 
 .price-up {
