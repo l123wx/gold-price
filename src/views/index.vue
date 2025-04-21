@@ -35,6 +35,54 @@ const isPriceAlertActive = ref(false)
 const alertDialogVisible = ref(false)
 const alertType = ref<'high' | 'low' | null>(null)
 
+// 计算今日最高价和最低价
+const todayHighestPrice = computed(() => {
+  if (!chartData.value || chartData.value.length === 0) return 0
+  
+  let highest = 0
+  chartData.value.forEach(item => {
+    const price = parseFloat(item.value[1])
+    if (!isNaN(price) && (highest === 0 || price > highest)) {
+      highest = price
+    }
+  })
+  
+  return highest
+})
+
+const todayLowestPrice = computed(() => {
+  if (!chartData.value || chartData.value.length === 0) return 0
+  
+  let lowest = 0
+  chartData.value.forEach(item => {
+    const price = parseFloat(item.value[1])
+    if (!isNaN(price) && (lowest === 0 || price < lowest)) {
+      lowest = price
+    }
+  })
+  
+  return lowest
+})
+
+// 计算当前价格状态
+const priceStatus = computed(() => {
+  if (!latestPrice.value || !chartData.value || chartData.value.length === 0) {
+    return 'normal'
+  }
+  
+  const currentPrice = parseFloat(latestPrice.value.price)
+  if (isNaN(currentPrice)) return 'normal'
+  
+  // 允许一点点精度误差（0.01）
+  if (Math.abs(currentPrice - todayHighestPrice.value) < 0.01) {
+    return 'highest'
+  } else if (Math.abs(currentPrice - todayLowestPrice.value) < 0.01) {
+    return 'lowest'
+  } else {
+    return 'normal'
+  }
+})
+
 // 计算不亏损卖出价格
 const noLossSellPrice = computed(() => {
   if (!latestPrice.value) return null
@@ -278,8 +326,28 @@ const initChart = () => {
         },
         markPoint: {
           data: [
-            { type: 'max', name: 'Max' },
-            { type: 'min', name: 'Min' }
+            {
+              type: 'max',
+              name: 'Max',
+              itemStyle: {
+                color: '#e04c4c55',
+              },
+              label: {
+                color: '#000',
+                fontWeight: 'bolder',
+              }
+            },
+            {
+              type: 'min',
+              name: 'Min',
+              itemStyle: {
+                color: '#6cc14d55',
+              },
+              label: {
+                color: '#000',
+                fontWeight: 'bolder',
+              }
+            }
           ]
         },
         markLine: {
@@ -692,7 +760,10 @@ onUnmounted(() => {
       <div class="price-info">
         <div class="price-value-container">
           <span class="price-label">当前金价:</span>
-          <span class="price-value">{{ latestPrice.price }}</span>
+          <span class="price-value" :class="{
+            'price-highest': priceStatus === 'highest',
+            'price-lowest': priceStatus === 'lowest'
+          }">{{ latestPrice.price }}</span>
           <span class="price-unit">元/克</span>
         </div>
         <div class="price-change" :class="{ 'price-up': latestPrice.upAndDownAmt.startsWith('+'), 'price-down': latestPrice.upAndDownAmt.startsWith('-') }">
@@ -884,6 +955,24 @@ onUnmounted(() => {
   font-size: 2.2rem;
   font-weight: bold;
   color: #e0962e;
+}
+
+/* 最高价和最低价的特殊颜色 */
+.price-highest {
+  color: #f26f6f; /* 鲜艳的红色表示最高价 */
+  animation: priceHighlight 1.5s ease-in-out infinite;
+}
+
+.price-lowest {
+  color: #6cc14d; /* 鲜艳的绿色表示最低价 */
+  animation: priceHighlight 1.5s ease-in-out infinite;
+}
+
+/* 价格突出显示动画 */
+@keyframes priceHighlight {
+  0% { text-shadow: 0 0 0px currentColor; }
+  50% { text-shadow: 0 0 10px currentColor; }
+  100% { text-shadow: 0 0 0px currentColor; }
 }
 
 .price-unit {
