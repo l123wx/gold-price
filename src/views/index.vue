@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import * as echarts from 'echarts'
-import { ElMessage, ElButton, ElDialog, ElForm, ElFormItem, ElInputNumber } from 'element-plus'
+import { ElMessage, ElButton, ElDialog, ElForm, ElFormItem, ElInputNumber, ElSwitch } from 'element-plus'
 import { Setting } from '@element-plus/icons-vue'
 import { getTodayPrices, getLatestPrice, GoldPriceChartData, LatestPriceData } from '@/api/goldPrice'
 
@@ -16,9 +16,24 @@ const lastUpdateTime = ref<string>('')
 // 交易手续费设置
 const dialogVisible = ref(false)
 const sellingFeeForm = ref({
-  fee: 0.0030 // 默认0.3%手续费
+  fee: 0.0030, // 默认0.3%手续费
+  highThreshold: 0, // 高阈值
+  lowThreshold: 0,  // 低阈值
+  highAlertEnabled: true, // 高阈值提醒启用状态
+  lowAlertEnabled: true   // 低阈值提醒启用状态
 })
 const sellingFee = ref(localStorage.getItem('sellingFee') ? Number(localStorage.getItem('sellingFee')) : 0.0030)
+
+// 价格阈值设置
+const highThreshold = ref(localStorage.getItem('highThreshold') ? Number(localStorage.getItem('highThreshold')) : 0)
+const lowThreshold = ref(localStorage.getItem('lowThreshold') ? Number(localStorage.getItem('lowThreshold')) : 0)
+const highAlertEnabled = ref(localStorage.getItem('highAlertEnabled') !== 'false') // 默认启用
+const lowAlertEnabled = ref(localStorage.getItem('lowAlertEnabled') !== 'false')   // 默认启用
+
+// 提醒状态
+const isPriceAlertActive = ref(false)
+const alertDialogVisible = ref(false)
+const alertType = ref<'high' | 'low' | null>(null)
 
 // 计算不亏损卖出价格
 const noLossSellPrice = computed(() => {
@@ -32,15 +47,74 @@ const noLossSellPrice = computed(() => {
   return price.toFixed(2)
 })
 
-// 保存手续费设置
-const saveSellingFee = () => {
+// 价格预警逻辑
+const checkPriceAlert = () => {
+  if (!latestPrice.value) return
+  
+  const currentPrice = parseFloat(latestPrice.value.price)
+  if (isNaN(currentPrice)) return
+  
+  // 检查是否超出阈值且提醒已启用
+  if (highAlertEnabled.value && highThreshold.value > 0 && currentPrice >= highThreshold.value) {
+    // 触发高价预警
+    isPriceAlertActive.value = true
+    alertType.value = 'high'
+    alertDialogVisible.value = true
+    
+    // 自动关闭高价提醒开关
+    highAlertEnabled.value = false
+    localStorage.setItem('highAlertEnabled', 'false')
+  } else if (lowAlertEnabled.value && lowThreshold.value > 0 && currentPrice <= lowThreshold.value) {
+    // 触发低价预警
+    isPriceAlertActive.value = true
+    alertType.value = 'low'
+    alertDialogVisible.value = true
+    
+    // 自动关闭低价提醒开关
+    lowAlertEnabled.value = false
+    localStorage.setItem('lowAlertEnabled', 'false')
+  }
+}
+
+// 确认已知晓预警
+const acknowledgeAlert = () => {
+  isPriceAlertActive.value = false
+  alertDialogVisible.value = false
+  alertType.value = null
+}
+
+// 保存手续费和阈值设置
+const saveSettings = () => {
+  // 验证手续费
   if (sellingFeeForm.value.fee < 0 || sellingFeeForm.value.fee > 0.1) {
     ElMessage.error('手续费应在0-10%范围内')
     return
   }
   
+  // 验证阈值
+  if (sellingFeeForm.value.highThreshold > 0 && sellingFeeForm.value.lowThreshold > 0 && 
+      sellingFeeForm.value.highThreshold <= sellingFeeForm.value.lowThreshold) {
+    ElMessage.error('最高价应大于最低价')
+    return
+  }
+  
+  // 保存手续费
   sellingFee.value = sellingFeeForm.value.fee
   localStorage.setItem('sellingFee', sellingFee.value.toString())
+  
+  // 保存阈值
+  highThreshold.value = sellingFeeForm.value.highThreshold
+  lowThreshold.value = sellingFeeForm.value.lowThreshold
+  localStorage.setItem('highThreshold', highThreshold.value.toString())
+  localStorage.setItem('lowThreshold', lowThreshold.value.toString())
+  
+  // 保存开关状态
+  highAlertEnabled.value = sellingFeeForm.value.highAlertEnabled
+  lowAlertEnabled.value = sellingFeeForm.value.lowAlertEnabled
+  localStorage.setItem('highAlertEnabled', highAlertEnabled.value.toString())
+  localStorage.setItem('lowAlertEnabled', lowAlertEnabled.value.toString())
+  
+  // 关闭弹窗
   dialogVisible.value = false
   ElMessage.success('设置已保存')
 }
@@ -48,6 +122,41 @@ const saveSellingFee = () => {
 // 打开设置弹窗
 const openSettingsDialog = () => {
   sellingFeeForm.value.fee = sellingFee.value
+  
+  // 如果用户之前没有设置过阈值，使用当前金价作为默认值
+  if (latestPrice.value) {
+    const currentPrice = parseFloat(latestPrice.value.price)
+    if (!isNaN(currentPrice)) {
+      // 如果高价阈值未设置，使用当前金价作为默认值
+      if (highThreshold.value === 0) {
+        // 高价默认为当前金价，便于用户基于当前价格进行调整
+        sellingFeeForm.value.highThreshold = currentPrice
+      } else {
+        sellingFeeForm.value.highThreshold = highThreshold.value
+      }
+      
+      // 如果低价阈值未设置，使用当前金价作为默认值
+      if (lowThreshold.value === 0) {
+        // 低价默认为当前金价，便于用户基于当前价格进行调整
+        sellingFeeForm.value.lowThreshold = currentPrice
+      } else {
+        sellingFeeForm.value.lowThreshold = lowThreshold.value
+      }
+    } else {
+      // 如果无法解析当前金价，使用已保存的值
+      sellingFeeForm.value.highThreshold = highThreshold.value
+      sellingFeeForm.value.lowThreshold = lowThreshold.value
+    }
+  } else {
+    // 如果没有当前金价数据，使用已保存的值
+    sellingFeeForm.value.highThreshold = highThreshold.value
+    sellingFeeForm.value.lowThreshold = lowThreshold.value
+  }
+  
+  // 设置开关状态
+  sellingFeeForm.value.highAlertEnabled = highAlertEnabled.value
+  sellingFeeForm.value.lowAlertEnabled = lowAlertEnabled.value
+  
   dialogVisible.value = true
 }
 
@@ -496,6 +605,13 @@ const handleResize = () => {
   }
 }
 
+// 监听价格变化
+watch(() => latestPrice.value?.price, (newPrice) => {
+  if (newPrice && !isPriceAlertActive.value) {
+    checkPriceAlert()
+  }
+})
+
 onMounted(async () => {
   try {
     // 加载保存的手续费设置
@@ -505,6 +621,34 @@ onMounted(async () => {
       if (!isNaN(feeValue) && feeValue >= 0 && feeValue <= 0.1) {
         sellingFee.value = feeValue
       }
+    }
+    
+    // 加载保存的阈值设置
+    const savedHighThreshold = localStorage.getItem('highThreshold')
+    if (savedHighThreshold) {
+      const highValue = Number(savedHighThreshold)
+      if (!isNaN(highValue) && highValue >= 0) {
+        highThreshold.value = highValue
+      }
+    }
+    
+    const savedLowThreshold = localStorage.getItem('lowThreshold')
+    if (savedLowThreshold) {
+      const lowValue = Number(savedLowThreshold)
+      if (!isNaN(lowValue) && lowValue >= 0) {
+        lowThreshold.value = lowValue
+      }
+    }
+    
+    // 加载保存的提醒开关状态
+    const savedHighEnabled = localStorage.getItem('highAlertEnabled')
+    if (savedHighEnabled !== null) {
+      highAlertEnabled.value = savedHighEnabled === 'true'
+    }
+    
+    const savedLowEnabled = localStorage.getItem('lowAlertEnabled')
+    if (savedLowEnabled !== null) {
+      lowAlertEnabled.value = savedLowEnabled === 'true'
     }
     
     // 获取初始数据
@@ -540,9 +684,18 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="gold-price-container">
+  <div
+    class="gold-price-container"
+    :class="{ 
+      'price-alert': isPriceAlertActive,
+      'high-alert': alertType === 'high',
+      'low-alert': alertType === 'low'
+    }">
     <!-- 最新金价显示 -->
-    <div class="latest-price-display" v-if="latestPrice && !error">
+    <div 
+      class="latest-price-display" 
+      v-if="latestPrice && !error"
+    >
       <div class="price-info">
         <div class="price-value-container">
           <span class="price-label">当前金价:</span>
@@ -559,6 +712,16 @@ onUnmounted(() => {
             设置
           </el-button>
         </div>
+        <div class="threshold-info" v-if="highThreshold > 0 || lowThreshold > 0">
+          <span v-if="highThreshold > 0" :class="{ 'threshold-disabled': !highAlertEnabled }">
+            高价警报: <strong>{{ highThreshold }}</strong> 元/克
+            <span v-if="!highAlertEnabled">(已关闭)</span>
+          </span>
+          <span v-if="lowThreshold > 0" :class="{ 'threshold-disabled': !lowAlertEnabled }">
+            低价警报: <strong>{{ lowThreshold }}</strong> 元/克
+            <span v-if="!lowAlertEnabled">(已关闭)</span>
+          </span>
+        </div>
       </div>
       <div class="update-time">
         最后更新: {{ lastUpdateTime }}
@@ -569,7 +732,7 @@ onUnmounted(() => {
     <div ref="chartContainer" style="height: calc(100vh - 150px); width: 100%;"></div>
     
     <!-- 设置弹窗 -->
-    <el-dialog v-model="dialogVisible" title="交易设置" width="30%" align-center>
+    <el-dialog v-model="dialogVisible" title="交易设置" width="300px" align-center>
       <el-form :model="sellingFeeForm" label-position="top">
         <el-form-item label="卖出手续费 (%)">
           <el-input-number
@@ -583,11 +746,87 @@ onUnmounted(() => {
           />
           <div class="fee-hint">请输入0-10%之间的手续费比例，例如0.3%输入0.003</div>
         </el-form-item>
+        
+        <el-form-item class="threshold-item">
+          <template #label>
+            <div class="threshold-label">
+              <span>最高价阈值 (元/克)</span>
+              <el-switch
+                v-model="sellingFeeForm.highAlertEnabled"
+                active-color="#e04c4c"
+                inactive-color="#dcdfe6"
+                class="threshold-switch"
+              />
+            </div>
+          </template>
+          <el-input-number
+            v-model="sellingFeeForm.highThreshold"
+            :precision="2"
+            :step="0.01"
+            :min="0"
+            :max="9999"
+            :controls="true"
+            :disabled="!sellingFeeForm.highAlertEnabled"
+            style="width: 100%"
+          />
+          <div class="fee-hint">价格高于此值时将提醒，设为0则不提醒</div>
+        </el-form-item>
+        
+        <el-form-item class="threshold-item">
+          <template #label>
+            <div class="threshold-label">
+              <span>最低价阈值 (元/克)</span>
+              <el-switch
+                v-model="sellingFeeForm.lowAlertEnabled"
+                active-color="#2e8b57"
+                inactive-color="#dcdfe6"
+                class="threshold-switch"
+              />
+            </div>
+          </template>
+          <el-input-number
+            v-model="sellingFeeForm.lowThreshold"
+            :precision="2"
+            :step="0.01"
+            :min="0"
+            :max="9999"
+            :controls="true"
+            :disabled="!sellingFeeForm.lowAlertEnabled"
+            style="width: 100%"
+          />
+          <div class="fee-hint">价格低于此值时将提醒，设为0则不提醒</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveSellingFee">确认</el-button>
+          <el-button type="primary" @click="saveSettings">确认</el-button>
+        </span>
+      </template>
+    </el-dialog>
+    
+    <!-- 价格提醒弹窗 -->
+    <el-dialog
+      v-model="alertDialogVisible"
+      :title="alertType === 'high' ? '价格已达到设定高值!' : '价格已达到设定低值!'"
+      width="30%"
+      align-center
+      :modal="false"
+      :show-close="false"
+    >
+      <div class="alert-content">
+        <p v-if="alertType === 'high'">
+          当前金价 <strong>{{ latestPrice?.price }}</strong> 元/克 已达到或超过您设置的高价阈值 
+          <strong>{{ highThreshold }}</strong> 元/克
+        </p>
+        <p v-else-if="alertType === 'low'">
+          当前金价 <strong>{{ latestPrice?.price }}</strong> 元/克 已达到或低于您设置的低价阈值 
+          <strong>{{ lowThreshold }}</strong> 元/克
+        </p>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button type="primary" @click="acknowledgeAlert">我知道了</el-button>
         </span>
       </template>
     </el-dialog>
@@ -600,9 +839,30 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 15px;
-  background-color: #fff;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
+  transition: background-color 0.3s ease;
+}
+
+/* 价格警报闪烁效果 */
+@keyframes highPriceAlert {
+  0% { background-color: transparent; }
+  50% { background-color: rgba(224, 76, 76, 0.3); } /* 红色 - 卖出信号 */
+  100% { background-color: transparent; }
+}
+
+@keyframes lowPriceAlert {
+  0% { background-color: transparent; }
+  50% { background-color: rgba(46, 139, 87, 0.3); } /* 绿色 - 买入信号 */
+  100% { background-color: transparent; }
+}
+
+.price-alert.high-alert {
+  animation: highPriceAlert 1.5s ease-in-out infinite;
+}
+
+.price-alert.low-alert {
+  animation: lowPriceAlert 1.5s ease-in-out infinite;
 }
 
 .price-info {
@@ -704,6 +964,27 @@ onUnmounted(() => {
   margin: 0 2px;
 }
 
+.threshold-info {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: #666;
+  display: flex;
+  gap: 10px;
+}
+
+.threshold-info strong {
+  font-weight: bold;
+}
+
+.threshold-disabled {
+  color: #aaa;
+  text-decoration: line-through;
+}
+
+.threshold-disabled strong {
+  color: #aaa;
+}
+
 .fee-info {
   color: #888;
   font-size: 0.85rem;
@@ -721,5 +1002,36 @@ onUnmounted(() => {
   font-size: 0.8rem;
   color: #888;
   margin-top: 5px;
+  line-height: 20px;
+}
+
+.threshold-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.threshold-switch {
+  margin-left: 10px;
+}
+
+.threshold-item {
+  margin-top: 15px;
+}
+
+.alert-content {
+  text-align: center;
+  font-size: 1.1rem;
+  margin: 20px 0;
+}
+
+.alert-content p {
+  margin: 10px 0;
+}
+
+.alert-content strong {
+  font-weight: bold;
+  font-size: 1.2rem;
 }
 </style>
