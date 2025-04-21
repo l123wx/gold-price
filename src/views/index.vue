@@ -91,13 +91,6 @@ const saveSettings = () => {
     return
   }
   
-  // 验证阈值
-  if (sellingFeeForm.value.highThreshold > 0 && sellingFeeForm.value.lowThreshold > 0 && 
-      sellingFeeForm.value.highThreshold <= sellingFeeForm.value.lowThreshold) {
-    ElMessage.error('最高价应大于最低价')
-    return
-  }
-  
   // 保存手续费
   sellingFee.value = sellingFeeForm.value.fee
   localStorage.setItem('sellingFee', sellingFee.value.toString())
@@ -705,6 +698,12 @@ onUnmounted(() => {
         <div class="price-change" :class="{ 'price-up': latestPrice.upAndDownAmt.startsWith('+'), 'price-down': latestPrice.upAndDownAmt.startsWith('-') }">
           {{ latestPrice.upAndDownAmt }} ({{ latestPrice.upAndDownRate }})
         </div>
+        
+      </div>
+      <div style="height: 100%; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;">
+        <div class="update-time">
+          最后更新: {{ lastUpdateTime }}
+        </div>
         <div class="no-loss-price" v-if="noLossSellPrice">
           <span>盈亏平衡价: <strong>{{ noLossSellPrice }}</strong> 元/克</span>
           <span class="fee-info">(手续费: {{ formatPercent(sellingFee) }})</span>
@@ -722,9 +721,6 @@ onUnmounted(() => {
             <span v-if="!lowAlertEnabled">(已关闭)</span>
           </span>
         </div>
-      </div>
-      <div class="update-time">
-        最后更新: {{ lastUpdateTime }}
       </div>
     </div>
 
@@ -816,11 +812,13 @@ onUnmounted(() => {
     >
       <div class="alert-content">
         <p v-if="alertType === 'high'">
-          当前金价 <strong>{{ latestPrice?.price }}</strong> 元/克 已达到或超过您设置的高价阈值 
+          当前金价 <strong>{{ latestPrice?.price }}</strong> 元/克 <br/>
+          已达到高价阈值
           <strong>{{ highThreshold }}</strong> 元/克
         </p>
         <p v-else-if="alertType === 'low'">
-          当前金价 <strong>{{ latestPrice?.price }}</strong> 元/克 已达到或低于您设置的低价阈值 
+          当前金价 <strong>{{ latestPrice?.price }}</strong> 元/克 <br/>
+          已达到低价阈值 
           <strong>{{ lowThreshold }}</strong> 元/克
         </p>
       </div>
@@ -842,18 +840,19 @@ onUnmounted(() => {
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
   transition: background-color 0.3s ease;
+  height: 120px;
 }
 
 /* 价格警报闪烁效果 */
 @keyframes highPriceAlert {
   0% { background-color: transparent; }
-  50% { background-color: rgba(224, 76, 76, 0.3); } /* 红色 - 卖出信号 */
+  50% { background-color: rgba(255, 50, 50, 0.6); } /* 更鲜艳的红色，提高不透明度 */
   100% { background-color: transparent; }
 }
 
 @keyframes lowPriceAlert {
   0% { background-color: transparent; }
-  50% { background-color: rgba(46, 139, 87, 0.3); } /* 绿色 - 买入信号 */
+  50% { background-color: rgba(0, 210, 90, 0.6); } /* 更鲜艳的绿色，提高不透明度 */
   100% { background-color: transparent; }
 }
 
@@ -1022,7 +1021,7 @@ onUnmounted(() => {
 
 .alert-content {
   text-align: center;
-  font-size: 1.1rem;
+  font-size: 14px;
   margin: 20px 0;
 }
 
