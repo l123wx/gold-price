@@ -428,12 +428,12 @@ const updateChartData = () => {
     seriesData.sort((a, b) => a[0] - b[0])
 
     // 限制数据点数量，避免性能问题
-    const maxDataPoints = 500
+    // const maxDataPoints = 500
     let finalData = seriesData
-    if (seriesData.length > maxDataPoints) {
-      // 如果数据点过多，取最近的maxDataPoints个点
-      finalData = seriesData.slice(-maxDataPoints)
-    }
+    // if (seriesData.length > maxDataPoints) {
+    //   // 如果数据点过多，取最近的maxDataPoints个点
+    //   finalData = seriesData.slice(-maxDataPoints)
+    // }
 
     // 判断是否需要初始化显示范围
     const isFirstUpdate = !hasInitializedRange.value;
