@@ -243,10 +243,12 @@ const initChart = () => {
       formatter: function(params: any) {
         const time = params[0].value[0]
         const price = params[0].value[1]
+        // 计算盈亏平衡价
+        const breakEvenPrice = (price / (1 - sellingFee.value)).toFixed(2)
         // 格式化时间显示
         const date = new Date(time);
         const formattedTime = `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
-        return `${formattedTime}<br/>价格: <b>${price}</b> 元/克`;
+        return `${formattedTime}<br/>价格: <b>${price}</b> 元/克<br/>盈亏平衡价: <b style="color:#e04c4c">${breakEvenPrice}</b> 元/克`;
       },
       axisPointer: {
         animation: false
@@ -737,7 +739,7 @@ onUnmounted(() => {
           最后更新: {{ lastUpdateTime }}
         </div>
         <div class="no-loss-price" v-if="noLossSellPrice">
-          <span>盈亏平衡价: <strong>{{ noLossSellPrice }}</strong> 元/克</span>
+          <span>当前盈亏平衡价: <strong>{{ noLossSellPrice }}</strong> 元/克</span>
           <span class="fee-info">(手续费: {{ formatPercent(sellingFee) }})</span>
           <el-button type="primary" link size="small" :icon="Setting" class="settings-btn" @click="openSettingsDialog">
             设置
