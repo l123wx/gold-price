@@ -25,13 +25,13 @@ cd gold-price
 3.安装依赖
 
 ```shell
-npm install
+pnpm i
 ```
 
 4.运行项目
 
 ```shell
-npm run dev
+pnpm dev
 ```
 
 ## 接口
