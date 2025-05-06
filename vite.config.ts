@@ -9,6 +9,17 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+    proxy: {
+      '/api': {
+        target: 'https://ms.jr.jd.com/gw/generic/hj/h5/m/',
+        rewrite: (path) => path.replace('/api', ''),
+        headers: {
+          'origin': 'http://localhost:3000',
+          'host': 'ms.jr.jd.com',
+          'referer': 'http://localhost:3000/'
+        }
+      }
+    }
   },
   resolve: {
     alias: {

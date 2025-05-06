@@ -42,12 +42,12 @@ export interface LatestPriceResponse {
 
 // 获取当天金价折线图数据
 export async function getTodayPrices(): Promise<GoldPriceChartResponse> {
-  const response = await axios.post('https://ms.jr.jd.com/gw/generic/hj/h5/m/todayPrices')
+  const response = await axios.post('api/todayPrices')
   return response.data
 }
 
 // 获取最新金价
 export async function getLatestPrice(): Promise<LatestPriceResponse> {
-  const response = await axios.post('https://ms.jr.jd.com/gw/generic/hj/h5/m/latestPrice')
+  const response = await axios.post('api/latestPrice')
   return response.data
 }
